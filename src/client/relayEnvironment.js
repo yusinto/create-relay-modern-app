@@ -13,7 +13,9 @@ function fetchQuery(
       'content-type': 'application/json'
     },
     body: JSON.stringify({
-      query: operation.text, // GraphQL text from input
+      // TODO: hijack operation.id to store query id
+      queryId: operation.id, // TODO: match this id on the server side
+      // query: operation.text, // GraphQL text from input
       variables,
     }),
   }).then(response => {
