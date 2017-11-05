@@ -1,31 +1,19 @@
 import 'babel-polyfill';
-import fs from 'fs';
+import {promisify} from 'util';
 import path from 'path';
+import fs from 'fs';
 import crypto from 'crypto';
 import RelayCompiler from 'relay-compiler';
-import {
-  buildASTSchema,
-  buildClientSchema,
-  parse,
-  printSchema,
-} from 'graphql';
-import type {GraphQLSchema} from 'graphql';
+import {getFilepathsFromGlob, getRelayFileWriter, getSchema} from './ripped';
 
 const {
   ConsoleReporter,
   Runner: CodegenRunner,
   FileIRParser: RelayJSModuleParser,
-  FileWriter: RelayFileWriter,
-  IRTransforms: RelayIRTransforms,
-  formatGeneratedModule,
 } = RelayCompiler;
-const {
-  codegenTransforms,
-  fragmentTransforms,
-  printTransforms,
-  queryTransforms,
-  schemaExtensions,
-} = RelayIRTransforms;
+
+const queryCache = [];
+const writeFileAsync = promisify(fs.writeFile);
 
 function md5(x: string): string {
   return crypto
@@ -37,81 +25,10 @@ function md5(x: string): string {
 function persistQuery(operationText: string): Promise<string> {
   return new Promise((resolve) => {
     const queryId = md5(operationText);
-
-    // TODO: store queryId to query in map
+    queryCache.push({id: queryId, text: operationText});
     console.log(`mapped ${operationText} to ${queryId}`);
     resolve(queryId);
   });
-}
-
-function getFilepathsFromGlob(
-  baseDir,
-  options: {
-    extensions: Array<string>,
-    include: Array<string>,
-    exclude: Array<string>,
-  },
-): Array<string> {
-  const {extensions, include, exclude} = options;
-  const patterns = include.map(inc => `${inc}/*.+(${extensions.join('|')})`);
-
-  const glob = require('fast-glob');
-  return glob.sync(patterns, {
-    cwd: baseDir,
-    bashNative: [],
-    onlyFiles: true,
-    ignore: exclude,
-  });
-}
-
-function getRelayFileWriter(baseDir: string) {
-  return (onlyValidate, schema, documents, baseDocuments) =>
-    new RelayFileWriter({
-      config: {
-        baseDir,
-        compilerTransforms: {
-          codegenTransforms,
-          fragmentTransforms,
-          printTransforms,
-          queryTransforms,
-        },
-        customScalars: {},
-        formatModule: formatGeneratedModule,
-        inputFieldWhiteListForFlow: [],
-        schemaExtensions,
-        useHaste: false,
-        persistQuery,
-      },
-      onlyValidate,
-      schema,
-      baseDocuments,
-      documents,
-    });
-}
-
-function getSchema(schemaPath: string): GraphQLSchema {
-  try {
-    let source = fs.readFileSync(schemaPath, 'utf8');
-    if (path.extname(schemaPath) === '.json') {
-      source = printSchema(buildClientSchema(JSON.parse(source).data));
-    }
-    source = `
-  directive @include(if: Boolean) on FRAGMENT | FIELD
-  directive @skip(if: Boolean) on FRAGMENT | FIELD
-
-  ${source}
-  `;
-    return buildASTSchema(parse(source));
-  } catch (error) {
-    throw new Error(
-      `
-Error loading schema. Expected the schema to be a .graphql or a .json
-file, describing your GraphQL server's API. Error detail:
-
-${error.stack}
-    `.trim(),
-    );
-  }
 }
 
 async function run(src: string, schema: string) {
@@ -140,7 +57,7 @@ async function run(src: string, schema: string) {
   };
   const writerConfigs = {
     default: {
-      getWriter: getRelayFileWriter(srcDir),
+      getWriter: getRelayFileWriter(srcDir, persistQuery),
       isGeneratedFile: (filePath) =>
         filePath.endsWith('.js') && filePath.includes('__generated__'),
       parser: 'default',
@@ -152,9 +69,20 @@ async function run(src: string, schema: string) {
     writerConfigs,
     onlyValidate: false,
   });
+
+  // the real work is done here
   const result = await codegenRunner.compileAll();
 
-  // TODO: write query id map a file so the server can pick it up
+  const queryCacheOutputFile = `${srcDir}/queryCache.json`;
+  try {
+    await writeFileAsync(queryCacheOutputFile, JSON.stringify(queryCache));
+    console.log(`Query cache written to: ${queryCacheOutputFile}`);
+  } catch (err) {
+    if (err) {
+      return console.log(err);
+    }
+  }
+
   console.log(`Done! ${result}`);
 }
 
