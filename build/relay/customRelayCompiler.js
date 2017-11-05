@@ -2,7 +2,6 @@ import 'babel-polyfill';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import glob from 'fast-glob';
 import RelayCompiler from 'relay-compiler';
 import {
   buildASTSchema,
@@ -10,6 +9,7 @@ import {
   parse,
   printSchema,
 } from 'graphql';
+import type {GraphQLSchema} from 'graphql';
 
 const {
   ConsoleReporter,
@@ -27,30 +27,14 @@ const {
   schemaExtensions,
 } = RelayIRTransforms;
 
-function getFilepathsFromGlob(baseDir, options) {
-  const {extensions, include, exclude} = options;
-  const patterns = include.map(inc => `${inc}/*.+(${extensions.join('|')})`);
-
-  return glob.sync(patterns, {
-    cwd: baseDir,
-    bashNative: [],
-    onlyFiles: true,
-    ignore: exclude,
-  });
-}
-
-// Ripped from RelayFileWriter.js
-// function md5(x: string): string {
-function md5(x) {
+function md5(x: string): string {
   return crypto
     .createHash('md5')
     .update(x, 'utf8')
     .digest('hex');
 }
 
-// takes operation.text as string param
-// returns Promise<string>
-function persistQuery(operationText) {
+function persistQuery(operationText: string): Promise<string> {
   return new Promise((resolve) => {
     const queryId = md5(operationText);
 
@@ -60,7 +44,27 @@ function persistQuery(operationText) {
   });
 }
 
-function getRelayFileWriter(baseDir) {
+function getFilepathsFromGlob(
+  baseDir,
+  options: {
+    extensions: Array<string>,
+    include: Array<string>,
+    exclude: Array<string>,
+  },
+): Array<string> {
+  const {extensions, include, exclude} = options;
+  const patterns = include.map(inc => `${inc}/*.+(${extensions.join('|')})`);
+
+  const glob = require('fast-glob');
+  return glob.sync(patterns, {
+    cwd: baseDir,
+    bashNative: [],
+    onlyFiles: true,
+    ignore: exclude,
+  });
+}
+
+function getRelayFileWriter(baseDir: string) {
   return (onlyValidate, schema, documents, baseDocuments) =>
     new RelayFileWriter({
       config: {
@@ -85,7 +89,7 @@ function getRelayFileWriter(baseDir) {
     });
 }
 
-function getSchema(schemaPath) {
+function getSchema(schemaPath: string): GraphQLSchema {
   try {
     let source = fs.readFileSync(schemaPath, 'utf8');
     if (path.extname(schemaPath) === '.json') {
@@ -105,12 +109,12 @@ Error loading schema. Expected the schema to be a .graphql or a .json
 file, describing your GraphQL server's API. Error detail:
 
 ${error.stack}
-    `.trim()
+    `.trim(),
     );
   }
 }
 
-async function run(src, schema) {
+async function run(src: string, schema: string) {
   const srcDir = path.resolve(process.cwd(), src);
   const schemaPath = path.resolve(process.cwd(), schema);
   console.log(`srcDir: ${srcDir}, schemaPath: ${schemaPath}`);
