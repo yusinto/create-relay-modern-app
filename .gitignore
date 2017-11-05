@@ -58,7 +58,7 @@ typings/
 .env
 
 /build/graphql/compiled/
-/build/graphql/buildSchema.js.transpiled
+*.transpiled
 /build/graphql/schema.json
 FindGraphQLTags-*
 **/__generated__/*.graphql.js

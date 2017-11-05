@@ -1,5 +1,16 @@
-require('babel-polyfill');
-const crypto = require('crypto');
+import 'babel-polyfill';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import glob from 'fast-glob';
+import RelayCompiler from 'relay-compiler';
+import {
+  buildASTSchema,
+  buildClientSchema,
+  parse,
+  printSchema,
+} from 'graphql';
+
 const {
   ConsoleReporter,
   Runner: CodegenRunner,
@@ -7,18 +18,7 @@ const {
   FileWriter: RelayFileWriter,
   IRTransforms: RelayIRTransforms,
   formatGeneratedModule,
-} = require('relay-compiler');
-
-const fs = require('fs');
-const path = require('path');
-
-const {
-  buildASTSchema,
-  buildClientSchema,
-  parse,
-  printSchema,
-} = require('graphql');
-
+} = RelayCompiler;
 const {
   codegenTransforms,
   fragmentTransforms,
@@ -31,7 +31,6 @@ function getFilepathsFromGlob(baseDir, options) {
   const {extensions, include, exclude} = options;
   const patterns = include.map(inc => `${inc}/*.+(${extensions.join('|')})`);
 
-  const glob = require('fast-glob');
   return glob.sync(patterns, {
     cwd: baseDir,
     bashNative: [],
@@ -56,7 +55,6 @@ function persistQuery(operationText) {
     const queryId = md5(operationText);
 
     // TODO: store queryId to query in map
-
     console.log(`mapped ${operationText} to ${queryId}`);
     resolve(queryId);
   });
@@ -102,15 +100,21 @@ function getSchema(schemaPath) {
     return buildASTSchema(parse(source));
   } catch (error) {
     throw new Error(
-      'Error loading schema. Expected the schema to be a .graphql or a .json'
+      `
+Error loading schema. Expected the schema to be a .graphql or a .json
+file, describing your GraphQL server's API. Error detail:
+
+${error.stack}
+    `.trim()
     );
   }
 }
 
-async function run() {
-  const srcDir = path.resolve(__dirname, '../../src');
-  const schemaPath = path.resolve(__dirname, '../graphql/compiled/schema.graphql');
+async function run(src, schema) {
+  const srcDir = path.resolve(process.cwd(), src);
+  const schemaPath = path.resolve(process.cwd(), schema);
   console.log(`srcDir: ${srcDir}, schemaPath: ${schemaPath}`);
+
   const reporter = new ConsoleReporter({verbose: true});
   const parserConfigs = {
     default: {
@@ -144,19 +148,16 @@ async function run() {
     writerConfigs,
     onlyValidate: false,
   });
-
   const result = await codegenRunner.compileAll();
 
-  // write query id map a file so the server can pick it up
-
-
-  console.log(`Done! result: ${result}`);
+  // TODO: write query id map a file so the server can pick it up
+  console.log(`Done! ${result}`);
 }
 
 (async function () {
-  console.log(`Starting relay graphql compilation`);
+  console.log(`Starting relay compilation`);
   try {
-    await run();
+    await run('src', 'build/graphql/compiled/schema.graphql');
   } catch (err) {
     console.log(`error: ${err}`);
   }
