@@ -11,7 +11,6 @@ const {
   Runner: CodegenRunner,
   FileIRParser: RelayJSModuleParser,
 } = RelayCompiler;
-
 const queryCache = [];
 const writeFileAsync = promisify(fs.writeFile);
 
